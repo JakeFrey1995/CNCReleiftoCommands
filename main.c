@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include "bmp.h"
 
-void writerow(long width, float spp, float spyu, float spi, int side, int row[]);
+void writerow(FILE* outptr, long width, float spp, float spyu, float spi, int side, int row[]);
 
 int main(int argc, char *argv[]){
     
@@ -40,7 +40,7 @@ int main(int argc, char *argv[]){
     BITMAPINFOHEADER bi;
     fread(&bi, sizeof(BITMAPINFOHEADER), 1, inptr);
     
-    //make sure infile is a bitmap
+    //make sure infile is a 24-bit bitmap
     if (bf.bfType != 0x4d42 || bf.bfOffBits != 54 || bi.biSize != 40 || 
         bi.biBitCount != 24 || bi.biCompression != 0)
     {
@@ -58,11 +58,11 @@ int main(int argc, char *argv[]){
     scanf("%f", &width);
     
     //find steps per pixel and steps per y unit
-    float spi = 1; //steps per inch (should be 159)
+    float spi = 159; //steps per inch (should be 159)
     float ppi = bi.biWidth/width; //pixel per inch 
-    float spp = 1; //steps per pixel (should be spi/ppi)
+    float spp = spi/ppi; //steps per pixel (should be spi/ppi)
     float yupi = 256/depth; //y unit per inch
-    float spyu = .0039216; //steps per y unit (should be spi/yupi)
+    float spyu = spi/yupi; //steps per y unit (should be spi/yupi)
     
     //find padding
     int padding = (4 - (bi.biWidth * sizeof(RGBTRIPLE)) % 4) % 4;
@@ -89,7 +89,7 @@ int main(int argc, char *argv[]){
         fseek(inptr, padding, SEEK_CUR);
         
         //send row to write function
-        writerow(bi.biWidth, spp, spyu, spi, side, row);
+        writerow(outptr, bi.biWidth, spp, spyu, spi, side, row);
         if (side == 0){
             side = 1;
         }
@@ -105,108 +105,164 @@ int main(int argc, char *argv[]){
 }
 
 
-void writerow(long width, float spp, float spyu, float spi, int side, int row[]){
+void writerow(FILE* outptr, long width, float spp, float spyu, float spi, int side, int row[]){
     //variables used for choosing tool path
     int h1, h2;
     int count = 0;
+    short axis, dir;
+    float steps; 
     
     if (side == 0){
         
         //moves tool to initial y height
         h1 = row[0];
-        printf("axis : y\n");
-        printf("direction : negative\n");
-        printf("steps : %g\n", (255-h1)*spyu + .5*spi);
+        axis = 2;
+        dir = 0;
+        steps = (255-h1)*spyu + .5*spi;
+        fwrite(&axis, sizeof(short), 1, outptr);
+        fwrite(&dir, sizeof(short), 1, outptr);
+        fwrite(&steps, sizeof(float), 1, outptr);
         
         for (int i = 1; i < width; i++){
             h2 = row[i];
             if (h2 == h1){
                 if (i == width - 1){
-                    printf("axis : x\n");
-                    printf("direction : positive\n");
-                    printf("steps : %g\n", (count + 1)*spp);
+                    axis = 1;
+                    dir = 1;
+                    steps = (count + 1)*spp;
+                    fwrite(&axis, sizeof(short), 1, outptr);
+                    fwrite(&dir, sizeof(short), 1, outptr);
+                    fwrite(&steps, sizeof(float), 1, outptr);
                 }
                 count++;
                 h1 = h2;
             }
             if (h2 > h1){
-                printf("axis : x\n");
-                printf("direction : positive\n");
-                printf("steps : %g\n", count*spp);
-                printf("axis : y\n");
-                printf("direction : positive\n");
-                printf("steps : %g\n", (h2 - h1)*spyu);
-                printf("axis : x\n");
-                printf("direction : positive\n");
-                printf("steps : %g\n", spp);
+                axis = 1;
+                dir = 1;
+                steps = count*spp;
+                fwrite(&axis, sizeof(short), 1, outptr);
+                fwrite(&dir, sizeof(short), 1, outptr);
+                fwrite(&steps, sizeof(float), 1, outptr);
+                axis = 2;
+                dir = 1;
+                steps = (h2 - h1)*spyu;
+                fwrite(&axis, sizeof(short), 1, outptr);
+                fwrite(&dir, sizeof(short), 1, outptr);
+                fwrite(&steps, sizeof(float), 1, outptr);
+                axis = 1;
+                dir = 1;
+                steps = spp;
+                fwrite(&axis, sizeof(short), 1, outptr);
+                fwrite(&dir, sizeof(short), 1, outptr);
+                fwrite(&steps, sizeof(float), 1, outptr);
                 count = 0;
             }
             if (h2 < h1){
-                printf("axis : x\n");
-                printf("direction : positive\n");
-                printf("steps : %g\n", (count + 1)*spp);
-                printf("axis : y\n");
-                printf("direction : negative\n");
-                printf("steps : %g\n", (h1 - h2)*spyu);
+                axis = 1;
+                dir = 1;
+                steps = (count + 1)*spp;
+                fwrite(&axis, sizeof(short), 1, outptr);
+                fwrite(&dir, sizeof(short), 1, outptr);
+                fwrite(&steps, sizeof(float), 1, outptr);
+                axis = 2;
+                dir = 0;
+                steps = (h1 - h2)*spyu;
+                fwrite(&axis, sizeof(short), 1, outptr);
+                fwrite(&dir, sizeof(short), 1, outptr);
+                fwrite(&steps, sizeof(float), 1, outptr);
                 count = 0;
             }
             h1 = h2;
         }
-        printf("axis : y\n");
-        printf("direction : positive\n");
-        printf("steps : %g\n", (255 - h2)*spyu + .5*spi);
-        printf("axis : z\n");
-        printf("direction : positive\n");
-        printf("steps : %g\n", spp);
+        axis = 2;
+        dir = 1;
+        steps = (255 - h2)*spyu + .5*spi;
+        fwrite(&axis, sizeof(short), 1, outptr);
+        fwrite(&dir, sizeof(short), 1, outptr);
+        fwrite(&steps, sizeof(float), 1, outptr);
+        axis = 3;
+        dir = 1;
+        steps = spp;
+        fwrite(&axis, sizeof(short), 1, outptr);
+        fwrite(&dir, sizeof(short), 1, outptr);
+        fwrite(&steps, sizeof(float), 1, outptr);
     }
     
     if (side == 1){
         
         //moves tool to initial y height
         h1 = row[width - 1];
-        printf("axis : y\n");
-        printf("direction : negative\n");
-        printf("steps : %g\n", (255 - h1)*spyu + .5*spi);
+        axis = 2;
+        dir = 0;
+        steps = (255-h1)*spyu + .5*spi;
+        fwrite(&axis, sizeof(short), 1, outptr);
+        fwrite(&dir, sizeof(short), 1, outptr);
+        fwrite(&steps, sizeof(float), 1, outptr);
         
         for (int i = width - 2; i > -1; i--){
             h2 = row[i];
             if (h2 == h1){
                 if (i == 0){
-                    printf("axis : x\n");
-                    printf("direction : negative\n");
-                    printf("steps : %g\n", (count + 1)*spp);
+                    axis = 1;
+                    dir = 0;
+                    steps = (count + 1)*spp;
+                    fwrite(&axis, sizeof(short), 1, outptr);
+                    fwrite(&dir, sizeof(short), 1, outptr);
+                    fwrite(&steps, sizeof(float), 1, outptr);
                 }
                 count++;
                 h1 = h2;
             }
             if (h2 > h1){
-                printf("axis : x\n");
-                printf("direction : negative\n");
-                printf("steps : %g\n", count*spp);
-                printf("axis : y\n");
-                printf("direction : positive\n");
-                printf("steps : %g\n", (h2 - h1)*spyu);
-                printf("axis : x\n");
-                printf("direction : negative\n");
-                printf("steps : %g\n", spp);
+                axis = 1;
+                dir = 0;
+                steps = count*spp;
+                fwrite(&axis, sizeof(short), 1, outptr);
+                fwrite(&dir, sizeof(short), 1, outptr);
+                fwrite(&steps, sizeof(float), 1, outptr);
+                axis = 2;
+                dir = 1;
+                steps = (h2 - h1)*spyu;
+                fwrite(&axis, sizeof(short), 1, outptr);
+                fwrite(&dir, sizeof(short), 1, outptr);
+                fwrite(&steps, sizeof(float), 1, outptr);
+                axis = 1;
+                dir = 0;
+                steps = spp;
+                fwrite(&axis, sizeof(short), 1, outptr);
+                fwrite(&dir, sizeof(short), 1, outptr);
+                fwrite(&steps, sizeof(float), 1, outptr);
                 count = 0;
             }
             if (h2 < h1){
-                printf("axis : x\n");
-                printf("direction : negative\n");
-                printf("steps : %g\n", (count + 1)*spp);
-                printf("axis : y\n");
-                printf("direction : negative\n");
-                printf("steps : %g\n", (h1 - h2)*spyu);
+                axis = 1;
+                dir = 0;
+                steps = (count + 1)*spp;
+                fwrite(&axis, sizeof(short), 1, outptr);
+                fwrite(&dir, sizeof(short), 1, outptr);
+                fwrite(&steps, sizeof(float), 1, outptr);
+                axis = 2;
+                dir = 0;
+                steps = (h1 - h2)*spyu;
+                fwrite(&axis, sizeof(short), 1, outptr);
+                fwrite(&dir, sizeof(short), 1, outptr);
+                fwrite(&steps, sizeof(float), 1, outptr);
                 count = 0;
             }
             h1 = h2;
         }
-        printf("axis : y\n");
-        printf("direction : positive\n");
-        printf("steps : %g\n", (255 - h2)*spyu + .5*spi);
-        printf("axis : z\n");
-        printf("direction : positive\n");
-        printf("steps : %g\n", spp);
+        axis = 2;
+        dir = 1;
+        steps = (255 - h2)*spyu + .5*spi;
+        fwrite(&axis, sizeof(short), 1, outptr);
+        fwrite(&dir, sizeof(short), 1, outptr);
+        fwrite(&steps, sizeof(float), 1, outptr);
+        axis = 3;
+        dir = 1;
+        steps = spp;
+        fwrite(&axis, sizeof(short), 1, outptr);
+        fwrite(&dir, sizeof(short), 1, outptr);
+        fwrite(&steps, sizeof(float), 1, outptr);
     }
 }
